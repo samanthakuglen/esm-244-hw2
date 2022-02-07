@@ -1,0 +1,275 @@
+---
+title: "Task 1 - Palmetto Binary Logistic Regression "
+author: "Samantha Kuglen"
+date: "2/6/2022"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=TRUE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Attach packages
+library(tidyverse)
+library(here)
+library(kableExtra)
+library(patchwork)
+library(GGally)
+library(caret)
+library(AICcmodavg)
+library(ggbeeswarm)
+library(broom)
+library(spm)
+```
+
+### A. Overview
+
+This report provides a review of Florida palmetto data and the variables used to classify whether a palmetto plant is the species *Serenoa repens* or *Sabal etonia*. Binary logistic regression is used to test feasibility of using variables plant height (height), canopy length (length), canopy width (width), and number of green leaves (green_lvs) for species classification.
+
+**Data Citation**: Abrahamson, W.G. 2019. Survival, growth and biomass estimates of two dominant palmetto species of south-central Florida from 1981 - 2017, ongoing at 5-year intervals ver 1. Environmental Data Initiative. https://doi.org/10.6073/pasta/f2f96ec76fbbd4b9db431c79a770c4d5
+
+### B. Data Visualization
+This section provides a visual exploration of the differences in height, canopy length, canopy width, and green leaves between the two palmetto species. The purpose is to understand which predictor variables are more likely to help classify a species correctly.  
+
+#### I. Data Wrangling
+Read in the data, select relevant predictor variables, drop any possible NA values, identify names of species within the dataframe. Also obtain summary statistics of mean height, length, and width differences for comparison. 
+```{r}
+palmetto <- read_csv(here("data", "palmetto.csv"))
+palmetto_data <- palmetto %>% 
+  select(species, height, length, width, green_lvs) %>% 
+  drop_na() %>% 
+  mutate(species = case_when(species == 1 ~ "Serenoa repens",
+                            species == 2 ~ "Sabal etonia")) 
+  
+# ggpairs to see trends; canopy length and green leaves appear to be most distinct btwn species
+pairsplot <- palmetto_data %>%  
+  ggpairs(aes(color = species))
+
+palmetto_stats <- palmetto_data %>% 
+  group_by(species) %>% 
+  summarise(mean_height = mean(height, na.rm = TRUE),
+            mean_length = mean(length, na.rm = TRUE),
+            mean_width = mean(width, na.rm = TRUE))
+
+
+```
+
+#### II. Data Visualization
+
+```{r}
+l_w_plot <- ggplot(palmetto_data, aes(x = length, y = width, color = species)) +
+  geom_jitter(height = 0.5, alpha = 0.8) +  
+  scale_color_manual(values = c("#50C878", "#0339fc")) +
+  labs(x = "Length (cm)",
+       y = "Width (cm)",
+       title = "Palmetto Canopy Length vs Width Between Species",
+       subtitle = "Data: Abrahamson, W.G. 2019, Environmental Data Initiative (1981 - 2017)",
+       color = "Species") +
+  theme_linedraw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), # center title/subtitle
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.background = element_rect(fill = "#f5ebeb"),
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black")) 
+l_w_plot
+
+```
+
+**Figure 1.** Differences Between Species in Length vs Width. Figure 1 demonstrates that the two palmetto species have similar canopy length and widths but there is more variation in lengths than widths.
+
+```{r}
+l_plot <- ggplot(data = palmetto_data, aes(x = species, y = length, fill = species)) +
+  geom_boxplot(width = 0.3, alpha = 0.7) +
+  scale_fill_manual(name = "Species", values = c("#50C878", "#0339fc")) +
+  labs(x = "Species",
+       y = "Length (cm)",
+       title = "Lengths Differences Between Palmetto Species",
+       subtitle = "Data: Abrahamson, W.G. 2019, Environmental Data Initiative (1981 - 2017)") +
+  theme_linedraw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), # center title/subtitle
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.background = element_rect(fill = "#f5ebeb"), # change background color
+        legend.background = element_blank(), 
+        legend.box.background = element_rect(colour = "black")) # frame around legend
+
+l_plot
+
+```
+
+**Figure 2.** Palmetto lengths by species with the center line of the box indicating the median values and the lower and upper bounds indicating 25th and 75th percentiles, respectively. *Sabal etonia* has a mean length of `r round(palmetto_stats$mean_length[1], 2)` while *Serenoa repens* has a mean length of `r round(palmetto_stats$mean_length[2], 2)`, with a difference in means of `r round(palmetto_stats$mean_length[1] - palmetto_stats$mean_length[2], 2) `.
+
+
+```{r}
+# Plot 3
+h_glvs_plot <- ggplot(data = palmetto_data, aes(x = height, y = green_lvs)) +
+  geom_point(aes(color = species)) +
+  labs(x = "Height (cm)", 
+       y = "Count of Green Leaves", 
+       title = "Canopy Height and Green Leaves Count Between Species", 
+       subtitle = "Data: Abrahamson, W.G. 2019, Environmental Data Initiative (1981 - 2017)",
+       color = "Species") +
+  scale_color_manual(values = c("#50C878", "#0339fc")) +
+  theme_linedraw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), # center title/subtitle
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.background = element_rect(fill = "#f5ebeb"), # change background color
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black")) # frame around legend
+
+# Plot 4
+l_glvs_plot <- ggplot(data = palmetto_data, aes(x = length, y = green_lvs)) +
+  geom_point(aes(color = species)) +
+  labs(x = "Length (cm)", 
+       y = "Count of Green Leaves", 
+       title = "Length and Green Leaves Count Between Species", 
+       subtitle = "Data: Abrahamson, W.G. 2019, Environmental Data Initiative (1981 - 2017)",
+       color = "Species") +
+  scale_color_manual(values = c("#50C878", "#0339fc")) +
+  theme_linedraw() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"), # center title/subtitle
+        plot.subtitle = element_text(hjust = 0.5),
+        plot.background = element_rect(fill = "#f5ebeb"), # change background color
+        legend.background = element_blank(),
+        legend.box.background = element_rect(colour = "black")) # frame around legend
+```
+
+```{r}
+# Combine plots using `patchwork` package.
+h_glvs_plot / l_glvs_plot
+```
+
+**Figure 3.** Comparison of Height vs Green Leaves (top) and Length vs Green Leaves (bottom). The comparison of the two indicates that there is slightly more variation in length vs green leaves than height.
+
+Visualization findings: Figure 1 demonstrates that the two palmetto species have slightly more variation in lengths than widths, informing us that length may be a more important predictor variable than width. Further exploration in Figure 2 of length demonstrates that the two species have variance in their average lengths, again indicating that this may be an important variable in the binary logistic regression model. Figure 3 shows notable variation in length vs green leaves and height vs green leaves, indicating that these variables are both important to the model. We will explore the importance of length as a key predictor variable using Binary Logistic Regression.
+
+### C. Binary Logistic Regression
+Determination of the probability of a plant being either *Serenoa repens* or *Sabal etonia* based on several predictor variables with testing and comparison of two models. Results of the cross validation and a comparison of AICc values are used to describe which model performs better at classification. 
+
+#### I. Model 1 BLR - Plant Height, Canopy Length, Canopy Width and Green Leaves
+Model 1 is the log odds of plant type using plant height, canopy length, canopy width and green leaves as predictor variable.
+```{r}
+# Convert to a factor to understand factor levels of species
+palmetto_factor <- palmetto_data %>% 
+  mutate(species = as.factor(species))
+
+# Use `levels` in console to determine reference level as *Sabal etonia* : levels(palmetto_factor$species)
+
+# Predictor variables of model 1
+f1 <- species ~ height + length + width + green_lvs
+
+# First binary logistic regression on model 1
+plant_blr1 <- glm(formula = f1,
+                    data = palmetto_factor,
+                    family = "binomial")
+
+# Can manually look at the model in the console using summary(plant_blr1)
+blr1_tidy <- broom::tidy(plant_blr1)
+
+# Take log odds and convert to probability; examine fitted column which tells the probability that the species is *Sabal etonia*.
+blr1_fitted <- plant_blr1 %>% 
+  broom::augment(type.predict = "response") 
+
+# Use summary(blr1_fitted) in the console to see differences
+```
+
+#### II. Model 2 BLR - Plant Height, Canopy Width and Green Leaves
+Model 2 is the log odds of plant type using plant height, canopy width and green leaves (i.e., drop canopy length for this model)
+```{r}
+f2 <- species ~ height + width + green_lvs
+
+plant_blr2 <- glm(formula = f2,
+                  data = palmetto_factor,
+                  family = "binomial")
+
+# Use `summary(plant_blr2)` to see info
+blr2_tidy <- broom::tidy(plant_blr2)
+
+# Take log odds and convert to probability; most interested in the fitted column which tells the probability that the species is Serenoa repends.
+blr2_fitted <- plant_blr2 %>% 
+  broom::augment(type.predict = "response") 
+```
+
+The reference level '0' is *Sabal etonia*. We can use the outcome dataframe `blr1_fitted` as an exploratory view of the probability (in the `.fitted` column) plant being *Sabal repends* based on the variables `height`, `length`, `width`, and `green_lvs`. The outcome dataframe `blr2_fitted` similarly shows us the probability of plant being *Serenoa repends* based on the three variables `height`, `width`, and `green_lvs` (i.e. no length in this model). 
+
+#### III. AICc comparison
+```{r}
+aic <- AICcmodavg::aictab(list(plant_blr1, plant_blr2))
+# AICc fir Model 1 = 5194.57
+# AICc for Model 2 = 5987.48
+# Delta_AICc = 0 for model 1, 792.91 for model 2
+# Model 1 is better because of lower AICc 
+```
+Model 1 AICc is: `r round(aic$AICc[1], 2)` Model 2 AICc is: `r round(aic$AICc[2], 2)`. Model selection based on AIC tells us that Model 1 - plant type using plant height, canopy length, canopy width and green leaves as predictor variable is the preferred model. 
+
+#### IV. Ten-fold cross validation
+```{r}
+set.seed(123)
+
+# Train model using `caret` package for automation - "Classification and Regression Training"
+tr_ctrl <- trainControl(method = 'repeatedcv', number = 10, repeats = 10)
+
+model1_h_l_w_glvs <- train(f1, data = palmetto_factor,
+                method = 'glm', family = 'binomial', 
+                trControl = tr_ctrl)
+
+model2_h_w_glvs <- train(f2, data = palmetto_factor,
+                method = 'glm', family = 'binomial', 
+                trControl = tr_ctrl)
+
+# Call `model1_h_l_w_glvs` to see results
+# Call `model2_h_w_glvs` to see results
+
+#Model 1 Accuracy   Kappa    
+#        0.9169231  0.8338335
+
+#Model 2 Accuracy   Kappa    
+#       0.8988022  0.7975858
+```
+
+Model 1's Ten-fold cross validation accuracy is `r (round(model1_h_l_w_glvs $results$Accuracy, 3))*100`% while Model 2's accuracy is `r (round(model2_h_w_glvs $results$Accuracy, 3))*100`. The AICc comparison and the ten-fold cross validation accuracies inform us that Model 1 (height, length, width, green_lvs) is more accurate than Model 2 (height, width, green_lvs) and performs better at classification. Based on these results, we will train Model 1 to using the entire dataset. 
+
+### E. Training Model 1 (height, length, width, green leaves) on entire dataset
+```{r}
+final_mdl <- glm(formula = f1,
+                 data = palmetto_factor,
+                 family = "binomial")
+
+final_mdl_table <- tidy(final_mdl) %>% 
+  select(-statistic) %>% 
+  mutate(p.value = ifelse(p.value < 0.001, "< 0.001"))
+
+kable(final_mdl_table,
+      col = c("Term", "Coefficient estimate", "Std. Error", "p-value"),
+      caption =  "Table 1. Parameters of binomial logistic regression model.") %>% 
+    kable_styling(bootstrap_options = "striped", 
+                full_width = FALSE)
+
+```
+
+### Evaluation of Model Accuracy in Classifying Plant As Correct Species
+This section evaluates how successfully this model would “classify” a plant as the correct species, using a 50% cutoff. If the probability is >=50% that it is species *Serenoa repens*, then it would be classified as species *Serenoa repens*. 
+```{r}
+final_fitted<- final_mdl %>%
+  augment(type.predict = "response") %>%
+  mutate(prediction = case_when(.fitted > 0.5 ~ "Serenoa repens",
+                                .fitted < 0.5 ~ "Sabal etonia"))
+
+final_success <- final_fitted %>% 
+  group_by(species) %>% 
+  summarise(correct = sum(species == prediction),
+            incorrect = sum(species != prediction),
+            accuracy = round((correct)/(correct + incorrect) * 100, 2))
+
+kable(final_success,
+      col.names = c("Species", "Correct", "Incorrect", "Percent % Accuracy"),
+      caption = "Table 2: Final Model Success in Plant Species Classification") %>% 
+      kable_styling(bootstrap_options = "striped", 
+                full_width = FALSE)
+```
+
+### Summary
+- Model 1 AICc is: `r round(aic$AICc[1], 2)` Model 2 AICc is: `r round(aic$AICc[2], 2)`. Model selection based on AIC tells us that Model 1 - plant type using plant height, canopy length, canopy width and green leaves as predictor variable is the preferred model. 
+- Model 1's Ten-fold cross validation accuracy is `r (round(model1_h_l_w_glvs $results$Accuracy, 3))*100`% while Model 2's accuracy is `r (round(model2_h_w_glvs $results$Accuracy, 3))*100`%.
+- Evaluation of each Model 1's accuracy in species classification shows `r final_success$accuracy[1]` % while Model 2's accuracy is `r final_success$accuracy[2]` %. 
+- We can conclude the Model 1, predicting Palmetto species based on `height`, `length`, `width`, and `green_lvs` is more accurate than Model 2 `height`, `width`, `green_lvs`. 
